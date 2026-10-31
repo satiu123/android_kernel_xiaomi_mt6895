@@ -120,6 +120,7 @@ struct kbasep_pm_metrics {
 	u32 busy_cl[2];
 	u32 busy_gl;
 	u32 busy_gl_plus[3];
+	u64 counterRaw[4];
 #else
 
 	u32 time_busy;

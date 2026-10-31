@@ -30,6 +30,16 @@ enum ged_gpu_power_state {
 };
 #endif
 
+enum mtk_common_debug_types {
+	MTK_COMMON_DBG_DUMP_DB_BY_SETTING = 0,
+};
+
+#ifndef NUM_PERF_COUNTERS
+#define NUM_PERF_COUNTERS 4
+#endif
+
+extern void (*mtk_set_gpu_idle_fp)(unsigned int val);
+
 /* 6.12 IRQ monitor (AEE) hook: not present on 5.10 */
 static inline void irq_mon_aee_period_set(unsigned int irq, unsigned int period_ns)
 {

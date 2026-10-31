@@ -630,7 +630,7 @@ void mtk_common_ged_set_apo_api_sync_status(int apo_api_sync_status)
 }
 
 #if IS_ENABLED(CONFIG_PROC_FS)
-static void mtk_common_procfs_init(struct kbase_device *kbdev)
+static void mtk_platform_procfs_init(struct kbase_device *kbdev)
 {
 	if (IS_ERR_OR_NULL(kbdev))
 		return;
@@ -654,7 +654,7 @@ static void mtk_common_procfs_init(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_MTK_MEMTRACK */
 }
 
-static void mtk_common_procfs_term(struct kbase_device *kbdev)
+static void mtk_platform_procfs_term(struct kbase_device *kbdev)
 {
 	if (IS_ERR_OR_NULL(kbdev))
 		return;
@@ -672,6 +672,18 @@ static void mtk_common_procfs_term(struct kbase_device *kbdev)
 
 	proc_root = NULL;
 	remove_proc_entry(PROC_ROOT, NULL);
+}
+
+void mtk_common_procfs_init(void)
+{
+	if (mali_kbdev)
+		mtk_platform_procfs_init(mali_kbdev);
+}
+
+void mtk_common_procfs_exit(void)
+{
+	if (mali_kbdev)
+		mtk_platform_procfs_term(mali_kbdev);
 }
 #endif /* CONFIG_MALI_MTK_PROC_FS */
 
@@ -850,7 +862,7 @@ int mtk_common_device_init(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_MTK_LOG_BUFFER */
 
 #if IS_ENABLED(CONFIG_MALI_MTK_PROC_FS)
-	mtk_common_procfs_init(kbdev);
+	mtk_platform_procfs_init(kbdev);
 #endif /* CONFIG_MALI_MTK_PROC_FS */
 
 #if IS_ENABLED(CONFIG_MALI_MTK_DEBUG_DUMP)
@@ -968,7 +980,7 @@ void mtk_common_device_term(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_MTK_LOG_BUFFER */
 
 #if IS_ENABLED(CONFIG_MALI_MTK_PROC_FS)
-	mtk_common_procfs_term(kbdev);
+	mtk_platform_procfs_term(kbdev);
 #endif /* CONFIG_MALI_MTK_PROC_FS */
 
 #if IS_ENABLED(CONFIG_MALI_MIDGARD_DVFS) && IS_ENABLED(CONFIG_MALI_MTK_DVFS_POLICY)

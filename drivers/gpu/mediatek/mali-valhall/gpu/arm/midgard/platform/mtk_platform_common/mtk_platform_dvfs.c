@@ -19,6 +19,7 @@ u64 (*mtk_get_system_timer_fp)(void) = NULL;
 #include <backend/gpu/mali_kbase_pm_internal.h>
 #include <backend/gpu/mali_kbase_pm_defs.h>
 #include <csf/ipa_control/mali_kbase_csf_ipa_control_ex.h>
+#include <csf/mali_kbase_csf_firmware.h>
 #include <mtk_gpufreq.h>
 #include <mtk_gpu_utility.h>
 #include <platform/mtk_platform_common/mtk_platform_dvfs.h>
@@ -817,11 +818,7 @@ static void mtk_dvfs_policy_fn(struct work_struct *work)
 	/* kbase programs its own defaults while loading the firmware, so the
 	 * idle hysteresis / DVFS period have to be applied afterwards. */
 	if (!mtk_runtime_tuned && kbdev->csf.firmware_inited) {
-		extern u32 kbase_csf_firmware_set_gpu_idle_hysteresis_time(
-			struct kbase_device *kbdev, u64 dur_ns);
-
-		kbase_csf_firmware_set_gpu_idle_hysteresis_time(
-			kbdev, 10ULL * NSEC_PER_MSEC);
+		kbase_csf_firmware_set_gpu_idle_hysteresis_time(kbdev, 10000);
 		kbdev->pm.dvfs_period = 20;
 		mtk_runtime_tuned = true;
 		pr_info("mtk-gpufreq: runtime tune applied (hysteresis 10ms, dvfs 20ms)\n");
@@ -998,11 +995,7 @@ int mtk_dvfs_init(struct kbase_device *kbdev)
 	 * + firmware wake. 10 ms keeps it alive across frame gaps.
 	 * dvfs_period is the utilisation sampling window (default 100 ms). */
 	{
-		extern u32 kbase_csf_firmware_set_gpu_idle_hysteresis_time(
-			struct kbase_device *kbdev, u64 dur_ns);
-
-		kbase_csf_firmware_set_gpu_idle_hysteresis_time(
-			kbdev, 10ULL * NSEC_PER_MSEC);
+		kbase_csf_firmware_set_gpu_idle_hysteresis_time(kbdev, 10000);
 		kbdev->pm.dvfs_period = 20;
 		pr_info("mtk-gpufreq: idle hysteresis 10ms, dvfs period 20ms\n");
 	}
