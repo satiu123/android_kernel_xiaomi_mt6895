@@ -1,0 +1,338 @@
+name: Build ESK Kernel (xaga MT6895 with Mali r54)
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "Kernel variant to build"
+        required: true
+        default: "ALL"
+        type: choice
+        options:
+          - "ALL"
+          - "KSU-SUSFS"
+          - "KSU-SUSFS-LXC"
+          - "VNL"
+      release:
+        description: "Publish to GitHub Releases"
+        required: true
+        default: true
+        type: boolean
+      tag_name:
+        description: "Release tag (optional, e.g. v0.3.2-r54. Leave empty to auto-generate)"
+        required: false
+        default: ""
+        type: string
+  push:
+    branches:
+      - 17.0
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      version: ${{ steps.get-info.outputs.version }}
+      sublevel: ${{ steps.get-info.outputs.sublevel }}
+      sha12: ${{ steps.get-info.outputs.sha12 }}
+      tag_name: ${{ steps.get-info.outputs.tag_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Extract Kernel Information
+        id: get-info
+        run: |
+          VERSION=$(grep -m1 '^VERSION =' Makefile | awk '{print $3}')
+          PATCHLEVEL=$(grep -m1 '^PATCHLEVEL =' Makefile | awk '{print $3}')
+          SUBLEVEL=$(grep -m1 '^SUBLEVEL =' Makefile | awk '{print $3}')
+          FULL_VER="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}"
+          SHA12=$(git rev-parse --short=12 HEAD)
+          
+          TAG="${{ inputs.tag_name }}"
+          if [ -z "$TAG" ]; then
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              TAG="${GITHUB_REF#refs/tags/}"
+            else
+              TAG="v0.3.2-r54-${SHA12:0:8}"
+            fi
+          fi
+          
+          echo "version=${FULL_VER}" >> $GITHUB_OUTPUT
+          echo "sublevel=${SUBLEVEL}" >> $GITHUB_OUTPUT
+          echo "sha12=${SHA12}" >> $GITHUB_OUTPUT
+          echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
+          echo "Kernel version: ${FULL_VER}, Commit SHA: ${SHA12}, Tag: ${TAG}"
+
+      - name: Determine Matrix Variants
+        id: set-matrix
+        run: |
+          CHOICE="${{ inputs.variant }}"
+          if [ -z "$CHOICE" ] || [ "$CHOICE" == "ALL" ]; then
+            echo 'matrix=["KSU-SUSFS", "KSU-SUSFS-LXC", "VNL"]' >> $GITHUB_OUTPUT
+          else
+            echo "matrix=[\"$CHOICE\"]" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Maximize build disk space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gnupg gperf \
+            libelf-dev libncurses5-dev libssl-dev lz4 make \
+            ninja-build python3 rsync unzip zlib1g-dev zstd tar aria2
+
+      - name: Setup Clang toolchain
+        run: |
+          mkdir -p clang
+          echo "Downloading Android Clang toolchain..."
+          CLANG_URL="https://github.com/bachnxuan/aosp_clang_mirror/releases/download/clang-r614150-16713961/clang-r614150.tar.gz"
+          aria2c -x 16 -s 16 -d clang -o clang.tar.gz "$CLANG_URL" || \
+          curl -sSL "$CLANG_URL" -o clang/clang.tar.gz
+          tar -C clang -xzf clang/clang.tar.gz
+          rm -f clang/clang.tar.gz
+          echo "$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_PATH
+
+      - name: Setup KernelSU and SuSFS (for KSU variants)
+        if: matrix.variant == 'KSU-SUSFS' || matrix.variant == 'KSU-SUSFS-LXC'
+        run: |
+          echo "== Setting up BakaSU / KernelSU =="
+          git clone https://github.com/Baka-SU/BakaSU.git drivers/kernelsu || \
+          git clone https://github.com/ENGRahsepar/BakaSU.git drivers/kernelsu
+          
+          echo "== Setting up SuSFS =="
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 /tmp/susfs || \
+          git clone https://github.com/ENGRahsepar/susfs4ksu.git -b gki-android12-5.10 /tmp/susfs
+          
+          cp -r /tmp/susfs/kernel_patches/fs/* fs/
+          cp -r /tmp/susfs/kernel_patches/include/* include/
+          patch -p1 --fuzz=3 < /tmp/susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || true
+
+      - name: Configure Kernel
+        run: |
+          mkdir -p out
+          echo "== Merging Defconfigs =="
+          KCONFIG_CONFIG=arch/arm64/configs/xaga_defconfig \
+          ./scripts/kconfig/merge_config.sh -m -r \
+              arch/arm64/configs/gki_defconfig \
+              arch/arm64/configs/vendor/xiaomi_mt6895.config \
+              arch/arm64/configs/vendor/xaga.config
+
+          # Apply variant specific configs
+          if [ "${{ matrix.variant }}" == "KSU-SUSFS" ] || [ "${{ matrix.variant }}" == "KSU-SUSFS-LXC" ]; then
+            echo "CONFIG_KSU=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> arch/arm64/configs/xaga_defconfig
+          fi
+
+          if [ "${{ matrix.variant }}" == "KSU-SUSFS-LXC" ]; then
+            echo "CONFIG_NAMESPACES=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_NET_NS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_PID_NS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_IPC_NS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_UTS_NS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_USER_NS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_CGROUPS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_CGROUP_CPUACCT=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_CGROUP_DEVICE=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_CGROUP_FREEZER=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_CGROUP_SCHED=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_CPUSETS=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_MEMCG=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_POSIX_MQUEUE=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_SYSVIPC=y" >> arch/arm64/configs/xaga_defconfig
+            echo "CONFIG_TMPFS_POSIX_ACL=y" >> arch/arm64/configs/xaga_defconfig
+          fi
+
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
+              CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+              xaga_defconfig
+
+      - name: Build Kernel & Modules
+        run: |
+          make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=clang \
+              LLVM=1 LLVM_IAS=1 \
+              CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+              Image modules dtbs
+
+      - name: Package Kernel Modules (with Mali r54)
+        run: |
+          echo "== Installing build modules =="
+          make O=out ARCH=arm64 INSTALL_MOD_PATH=out/modules_install modules_install
+          
+          mkdir -p dist/modules_pack/vendor_dlkm/lib/modules
+          
+          # Copy all in-tree built modules
+          find out/modules_install/lib/modules/ -name "*.ko" -exec cp -f {} dist/modules_pack/vendor_dlkm/lib/modules/ \;
+          
+          # Overlay Mali r54 & GED/GPUEB upgraded modules from mali-r54
+          if [ -d "mali-r54/blobs/vendor_dlkm" ]; then
+            echo "Overlaying Mali r54 and updated GED/GPUEB modules..."
+            cp -vf mali-r54/blobs/vendor_dlkm/*.ko dist/modules_pack/vendor_dlkm/lib/modules/
+          fi
+          
+          # Strip debug symbols to reduce size
+          llvm-strip --strip-debug dist/modules_pack/vendor_dlkm/lib/modules/*.ko || true
+          
+          # Package into module.tar.xz
+          echo "Creating module.tar.xz..."
+          tar -cJf dist/module.tar.xz -C dist/modules_pack vendor_dlkm
+          ls -lh dist/module.tar.xz
+
+      - name: Build AnyKernel3 Flashable Zip
+        run: |
+          git clone https://github.com/ESK-Project/AnyKernel3.git -b xaga anykernel3
+          
+          # Compress kernel Image with zstd
+          echo "Compressing Image to Image.zst..."
+          zstd -19 out/arch/arm64/boot/Image -o anykernel3/Image.zst
+          sha256sum anykernel3/Image.zst | cut -d' ' -f1 > anykernel3/Image.zst.sha256
+          
+          # Include module.tar.xz into AnyKernel3
+          cp -f dist/module.tar.xz anykernel3/module.tar.xz
+          
+          # Copy dtb & dtbo if present
+          if [ -f "out/arch/arm64/boot/dts/vendor/mediatek/mt6895.dtb" ]; then
+            cp -f out/arch/arm64/boot/dts/vendor/mediatek/mt6895.dtb anykernel3/dtb || true
+          fi
+          if [ -f "out/arch/arm64/boot/dts/vendor/mediatek/xaga.dtbo" ]; then
+            cp -f out/arch/arm64/boot/dts/vendor/mediatek/xaga.dtbo anykernel3/dtbo.img || true
+          fi
+          
+          ZIP_NAME="ESK-Reborn-5.10.${{ needs.prepare.outputs.sublevel }}-${{ matrix.variant }}-${{ needs.prepare.outputs.sha12 }}-AnyKernel3.zip"
+          (cd anykernel3 && zip -r9 "../../dist/${ZIP_NAME}" * -x .git README.md *placeholder)
+          
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+          ls -lh dist/${ZIP_NAME}
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESK-${{ matrix.variant }}
+          path: |
+            dist/*.zip
+            dist/module.tar.xz
+
+  release:
+    needs: [prepare, build]
+    if: inputs.release == true || github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: Package Mali r54 Firmware & Configs Asset
+        run: |
+          mkdir -p release_assets
+          if [ -d "mali-r54" ]; then
+            echo "Packaging Mali r54 auxiliary package..."
+            mkdir -p /tmp/r54_pack
+            cp -r mali-r54/firmware /tmp/r54_pack/
+            cp -r mali-r54/files /tmp/r54_pack/
+            if [ -d "mali-r54/blobs/vendor" ]; then
+              mkdir -p /tmp/r54_pack/vendor_blobs
+              cp -r mali-r54/blobs/vendor/* /tmp/r54_pack/vendor_blobs/
+            fi
+            (cd /tmp/r54_pack && zip -r9 "$GITHUB_WORKSPACE/release_assets/Mali-r54p1-Firmware-Configs.zip" *)
+          fi
+
+      - name: Generate SHA256 Checksums
+        run: |
+          cd release_assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          name: "ESK Reborn 5.10.${{ needs.prepare.outputs.sublevel }} (Mali r54)"
+          draft: false
+          prerelease: false
+          files: |
+            release_assets/*
+          body: |
+            ## ESK Reborn Kernel (5.10.${{ needs.prepare.outputs.sublevel }}) with Mali-G610 r54p1 Port
+
+            **Supported Devices:**
+            - Redmi Note 11T Pro / Pro+ (`xaga` / `xagapro`)
+            - POCO X4 GT (`xaga`)
+            - Redmi K50i (`xagain`)
+            - SoC: MediaTek Dimensity 8100 (`MT6895`)
+            - Base: Linux 5.10 LTS @ 5.10.${{ needs.prepare.outputs.sublevel }} (Google `android12-5.10` GKI)
+
+            ---
+
+            ### 🚀 Mali GPU r54p1 Upgrade Highlights
+            - **Mali kbase Driver:** Upgraded to `r54p1-11eac0` (UK version 1.38)
+            - **Vulkan:** Official Vulkan 1.3 support (vulkan.version `4206592`)
+            - **GED & GPUEB:** Backported from 6.12 to 5.10 with full ABI compatibility
+            - **DVFS & FDVFS Closed Loop:** Fixed frequency scaling with native intermediate OPP steps (`350 / 430 / 610 / 800 / 950 MHz`)
+            - **950MHz Overclock Support:** GPUEB patch firmware support for full 950MHz boost
+            - **Fillrate Improvement:** 14.1 Gpix/s → **18.2~18.7 Gpix/s**
+
+            ---
+
+            ### 📦 Build Variants
+            - **`KSU-SUSFS`**: BakaSU (KernelSU sync-susfs) + SuSFS v2.3.0
+            - **`KSU-SUSFS-LXC`**: BakaSU + SuSFS + LXC / Droidspaces container support
+            - **`VNL`**: Vanilla stock experience (no root)
+            - **`module.tar.xz`**: Full vendor_dlkm module pack with upgraded r54 GPU modules
+            - **`Mali-r54p1-Firmware-Configs.zip`**: Firmware (`mali_csffw.bin`, `gpueb_950mhz.bin`), vendor configurations & EGL properties
+
+            ---
+
+            ### 📲 Installation Guide
+            1. Flash the desired `AnyKernel3.zip` via Recovery (ADB sideload or custom recovery).
+            2. The AnyKernel3 installer automatically installs the boot kernel image and updates `vendor_dlkm` modules when available.
+            3. For 950MHz GPU boost and userspace EGL r54 libraries, flash `firmware/gpueb_950mhz.bin` and copy `mali_csffw.bin` to `/vendor/firmware/`.

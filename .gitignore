@@ -11,6 +11,11 @@
 # Normal rules (sorted alphabetically)
 #
 .*
+!.gitignore
+!.github/
+!.github/**
+!.clang-format
+!.mailmap
 *.a
 *.asn1.[ch]
 *.bin
@@ -156,3 +161,6 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
+
+# Mali r54 ported drivers, firmware and prebuilt modules
+!mali-r54/**

@@ -443,6 +443,12 @@ unsigned int ged_is_fdvfs_support(void)
 EXPORT_SYMBOL(ged_is_fdvfs_support);
 
 
+/* xaga 的 DT 缺 gpu_fdvfs 节点，默认强制启用 FDVFS 支持（0 = 回退原逻辑） */
+static unsigned int ged_force_fdvfs = 1;
+module_param_named(ged_force_fdvfs, ged_force_fdvfs, uint, 0644);
+MODULE_PARM_DESC(ged_force_fdvfs,
+	"force FDVFS support when the gpu_fdvfs DT node is missing");
+
 GED_ERROR check_eb_config(void)
 {
 	struct device_node *gpueb_node, *fdvfs_node;
@@ -450,8 +456,12 @@ GED_ERROR check_eb_config(void)
 
 	gpueb_node = of_find_compatible_node(NULL, NULL, "mediatek,gpueb");
 	if (!gpueb_node) {
-		GED_LOGE("No gpueb node.");
-		g_ged_gpueb_support = 0;
+		GED_LOGE("No gpueb node. force-enable (ged_force_fdvfs=%u)",
+			ged_force_fdvfs);
+		if (ged_force_fdvfs)
+			g_ged_gpueb_support = 1;
+		else
+			g_ged_gpueb_support = 0;
 	} else {
 		ret = of_property_read_u32(gpueb_node, "gpueb-support",
 			&g_ged_gpueb_support);
@@ -461,9 +471,22 @@ GED_ERROR check_eb_config(void)
 
 	fdvfs_node = of_find_compatible_node(NULL, NULL, "mediatek,gpu_fdvfs");
 	if (!fdvfs_node) {
-		GED_LOGE("No fdvfs node.");
-		g_ged_fdvfs_support = 0;
-		g_ged_gpueb_support = 0;
+		/* xaga(Kirara DT) 没有 gpu_fdvfs/gpueb 节点：按原逻辑 GED 判为
+		 * 无 FDVFS 支持，所有提交掉进 gpufreq_commit —— 而 5.10.257
+		 * 的 gpueb 固件无视该路径（实测 20s 空载 GPU 钉死 950）。
+		 * FDVFS 的 IPI 通道按名字注册、不依赖 DT，且 fix 实验证明
+		 * 固件认 FDVFS 命令（fix STACK=39 → GPU 稳定 350），故缺节点
+		 * 时强制置位。若 IPI 通道缺失，fdvfs_init 会打日志并自行降级。
+		 * 运行时可用 /sys/module/ged/parameters/ged_force_fdvfs 关闭。 */
+		GED_LOGE("No fdvfs node. force-enable FDVFS support (ged_force_fdvfs=%u)",
+			ged_force_fdvfs);
+		if (ged_force_fdvfs) {
+			g_ged_fdvfs_support = 1;
+			g_ged_gpueb_support = 1;
+		} else {
+			g_ged_fdvfs_support = 0;
+			g_ged_gpueb_support = 0;
+		}
 	} else {
 		of_property_read_u32(fdvfs_node, "fdvfs-policy-support",
 				&g_ged_fdvfs_support);
