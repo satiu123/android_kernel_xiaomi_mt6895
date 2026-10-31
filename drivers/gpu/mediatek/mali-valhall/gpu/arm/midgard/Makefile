@@ -263,7 +263,10 @@ ccflags-y += \
     -I$(KO_CODE_PATH) \
     -I$(KO_CODE_PATH)/platform/$(MALI_PLATFORM_DIR) \
     -I$(KO_CODE_PATH)/../../../base \
-    -I$(KO_CODE_PATH)/../../../../include
+    -I$(KO_CODE_PATH)/../../../../include \
+    -I$(srctree)/drivers/gpu/mediatek/gpufreq/v2/include \
+    -I$(srctree)/drivers/gpu/mediatek/gpufreq \
+    -I$(srctree)/drivers/gpu/mediatek/ged/include
 
 subdir-ccflags-y += $(ccflags-y)
 

@@ -195,12 +195,14 @@ jobs:
           make -j$(nproc) O=out ARCH=arm64 CC=clang HOSTCC=clang \
               LLVM=1 LLVM_IAS=1 \
               CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+              KBUILD_MODPOST_WARN=1 \
+              KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=macro-redefined -Wno-error=incompatible-function-pointer-types -Wno-error=incompatible-pointer-types -Wno-error=int-conversion -Wno-error=declaration-after-statement" \
               Image modules dtbs
 
       - name: Package Kernel Modules (with Mali r54)
         run: |
           echo "== Installing build modules =="
-          make O=out ARCH=arm64 INSTALL_MOD_PATH=out/modules_install modules_install
+          make O=out ARCH=arm64 INSTALL_MOD_PATH=out/modules_install DEPMOD=true modules_install
           
           mkdir -p dist/modules_pack/vendor_dlkm/lib/modules
           

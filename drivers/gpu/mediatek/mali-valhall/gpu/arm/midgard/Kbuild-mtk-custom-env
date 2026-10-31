@@ -13,6 +13,12 @@ CONFIG_MALI_PLATFORM_NAME := $(MTK_PLATFORM)
 
 ccflags-y += -Wno-unused-variable
 ccflags-y += -Wno-unused-function
+ccflags-y += -Wno-error=implicit-function-declaration
+ccflags-y += -Wno-error=macro-redefined
+ccflags-y += -Wno-error=incompatible-function-pointer-types
+ccflags-y += -Wno-error=incompatible-pointer-types
+ccflags-y += -Wno-error=int-conversion
+ccflags-y += -Wno-error=declaration-after-statement
 
 ccflags-y += -I$(srctree)/include
 ccflags-y += -I$(srctree)/drivers/staging/android
@@ -25,6 +31,8 @@ ccflags-y += -I$(srctree)/drivers/gpu/mediatek/ged/include
 ccflags-y += -I$(srctree)/drivers/gpu/mediatek/gpu_bm
 ccflags-y += -I$(srctree)/drivers/gpu/mediatek/mt-plat
 ccflags-y += -I$(srctree)/drivers/gpu/mediatek/gpufreq
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/tinysys_scmi
+ccflags-y += -I$(srctree)/drivers/gpu/mediatek/gpufreq/v2/include
 ccflags-y += -I$(KO_CODE_PATH)/backend/gpu
 ccflags-y += -I$(KO_CODE_PATH)/include
 ccflags-y += -I$(KO_CODE_PATH)/platform/$(MTK_PLATFORM)

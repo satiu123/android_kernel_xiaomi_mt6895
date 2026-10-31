@@ -20,4 +20,7 @@ mali_kbase-y += $(curr)/mtk_gpu_power_sspm_ipi.o
 ccflags-y += -I$(srctree)/drivers/devfreq/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/perf_common/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/tinysys_scmi/
+ccflags-y += -I$(srctree)/drivers/gpu/mediatek/gpufreq/v2/include/
+ccflags-y += -I$(srctree)/drivers/gpu/mediatek/gpufreq/
+ccflags-y += -I$(srctree)/drivers/gpu/mediatek/ged/include/
 
