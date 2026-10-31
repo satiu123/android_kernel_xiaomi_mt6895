@@ -24,7 +24,6 @@
 #include "backend/gpu/mali_kbase_clk_rate_trace_mgr.h"
 #include "mali_kbase_csf_ipa_control.h"
 #include <mali_kbase_io.h>
-#include <platform/mtk_platform_utils.h> /* MTK_INLINE */
 #include <mtk_gpufreq.h>
 #include <mtk_ddk_define.h>  /* MTK_INLINE */
 

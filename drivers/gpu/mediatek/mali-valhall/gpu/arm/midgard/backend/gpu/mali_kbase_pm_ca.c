@@ -26,7 +26,6 @@
 #include <mali_kbase.h>
 #include <mali_kbase_pm.h>
 #include <backend/gpu/mali_kbase_pm_internal.h>
-#include <backend/gpu/mali_kbase_model_linux.h>
 
 int kbase_pm_ca_init(struct kbase_device *kbdev)
 {

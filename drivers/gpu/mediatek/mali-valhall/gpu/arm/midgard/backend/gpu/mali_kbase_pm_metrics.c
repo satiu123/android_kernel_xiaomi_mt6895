@@ -33,7 +33,6 @@
 
 #include <backend/gpu/mali_kbase_pm_defs.h>
 #include <mali_linux_trace.h>
-#include <platform/mtk_platform_utils.h> /* MTK_INLINE */
 #include <mtk_ddk_define.h>  /* MTK_INLINE */
 
 #if defined(CONFIG_MALI_DEVFREQ) || defined(CONFIG_MALI_MIDGARD_DVFS)
