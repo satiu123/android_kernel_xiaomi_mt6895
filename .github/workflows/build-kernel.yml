@@ -202,12 +202,13 @@ jobs:
       - name: Package Kernel Modules (with Mali r54)
         run: |
           echo "== Installing build modules =="
-          make O=out ARCH=arm64 INSTALL_MOD_PATH=out/modules_install DEPMOD=true modules_install
+          mkdir -p "${GITHUB_WORKSPACE}/out/modules_install"
+          make O=out ARCH=arm64 INSTALL_MOD_PATH="${GITHUB_WORKSPACE}/out/modules_install" DEPMOD=true modules_install
           
           mkdir -p dist/modules_pack/vendor_dlkm/lib/modules
           
           # Copy all in-tree built modules
-          find out/modules_install/lib/modules/ -name "*.ko" -exec cp -f {} dist/modules_pack/vendor_dlkm/lib/modules/ \;
+          find "${GITHUB_WORKSPACE}/out/modules_install/lib/modules/" -name "*.ko" -exec cp -f {} dist/modules_pack/vendor_dlkm/lib/modules/ \;
           
           # Overlay Mali r54 & GED/GPUEB upgraded modules from mali-r54
           if [ -d "mali-r54/blobs/vendor_dlkm" ]; then
@@ -230,7 +231,7 @@ jobs:
           # Compress kernel Image with zstd
           echo "Compressing Image to Image.zst..."
           zstd -19 out/arch/arm64/boot/Image -o anykernel3/Image.zst
-          sha256sum anykernel3/Image.zst | cut -d' ' -f1 > anykernel3/Image.zst.sha256
+          (cd anykernel3 && sha256sum Image.zst > Image.zst.sha256)
           
           # Include module.tar.xz into AnyKernel3
           cp -f dist/module.tar.xz anykernel3/module.tar.xz

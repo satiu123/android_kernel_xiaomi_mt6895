@@ -40,6 +40,12 @@ echo "== Merging Defconfigs =="
     arch/arm64/configs/vendor/xiaomi_mt6895.config \
     arch/arm64/configs/vendor/xaga.config
 
+# Use ThinLTO to prevent OOM
+cat << 'EOF' >> out/.config
+# CONFIG_LTO_CLANG_FULL is not set
+CONFIG_LTO_CLANG_THIN=y
+EOF
+
 if [ "$VARIANT" = "KSU-SUSFS" ] || [ "$VARIANT" = "KSU-SUSFS-LXC" ]; then
     cat << 'EOF' >> out/.config
 CONFIG_KSU=y
@@ -95,9 +101,10 @@ make -j"$(nproc)" O=out ARCH=arm64 CC=clang HOSTCC=clang \
 
 # 4. Package Modules
 echo "== Packaging Modules =="
-make O=out ARCH=arm64 INSTALL_MOD_PATH=out/modules_install DEPMOD=true modules_install
+mkdir -p "${PWD}/out/modules_install"
+make O=out ARCH=arm64 INSTALL_MOD_PATH="${PWD}/out/modules_install" DEPMOD=true modules_install
 mkdir -p dist/modules_pack/vendor_dlkm/lib/modules
-find out/modules_install/lib/modules/ -name "*.ko" -exec cp -f {} dist/modules_pack/vendor_dlkm/lib/modules/ \;
+find "${PWD}/out/modules_install/lib/modules/" -name "*.ko" -exec cp -f {} dist/modules_pack/vendor_dlkm/lib/modules/ \;
 
 if [ -d "mali-r54/blobs/vendor_dlkm" ]; then
     echo "Overlaying Mali r54 and updated GED/GPUEB modules..."
@@ -116,7 +123,7 @@ if [ ! -d "anykernel3" ]; then
 fi
 
 zstd -19 out/arch/arm64/boot/Image -o anykernel3/Image.zst --force
-sha256sum anykernel3/Image.zst | cut -d' ' -f1 > anykernel3/Image.zst.sha256
+(cd anykernel3 && sha256sum Image.zst > Image.zst.sha256)
 cp -f dist/module.tar.xz anykernel3/module.tar.xz
 
 if [ -f "out/arch/arm64/boot/dts/vendor/mediatek/mt6895.dtb" ]; then
